@@ -34,7 +34,7 @@ function setOptions(globalOptions, options) {
   });
 }
 
-function buildAPI(globalOptions, html, jar) {
+function buildAPI(globalOptions, html, jar, ts) {
   var maybeCookie = jar.getCookies("https://www.facebook.com").filter(function(val) {
     return val.cookieString().split("=")[0] === "c_user";
   });
@@ -60,6 +60,9 @@ function buildAPI(globalOptions, html, jar) {
 
   var api = {
     setOptions: setOptions.bind(null, globalOptions),
+    fb_dtsg: utils.getFrom(html, "name=\"fb_dtsg\" value=\"", "\""),
+    revision: utils.getFrom(html, "revision\":",","),
+    ts: ts || Date.now(),
     getAppState: function getAppState() {
       return utils.getAppState(jar);
     },
@@ -268,9 +271,17 @@ function loginHelper(appState, email, password, globalOptions, callback) {
   // back into the jar.
   if(appState) {
     appState.map(function(c) {
+      if (!c.key) return;
       var str = c.key + "=" + c.value + "; expires=" + c.expires + "; domain=" + c.domain + "; path=" + c.path + ";";
       jar.setCookie(str, "http://" + c.domain);
     });
+
+    // if last login is fresh (<90 min), send api object ASAP
+    if (appState.ts + 1000 * 60 * 90 > Date.now()) {
+      var html = 'name="fb_dtsg" value="'+appState.fb_dtsg+'" "revision":'+appState.revision+',';
+      var stuff = buildAPI(globalOptions, html, jar, appState.ts);
+      return callback(null, stuff[2]);
+    }
 
     // Load the main page.
     mainPromise = utils
